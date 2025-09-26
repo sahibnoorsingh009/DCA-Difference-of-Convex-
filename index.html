@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DCA Visualizer — Primal–Dual Intuition</title>
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+<style>
+  :root { --bg:#0b1020; --fg:#e8ecf3; --mut:#b5c0d0; --acc:#8ad; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:18px 20px; border-bottom:1px solid #1f2937; }
+  h1 { margin:0; font-size:20px; font-weight:600; }
+  .wrap { display:grid; gap:14px; grid-template-columns: 1fr 1fr; padding:14px; }
+  .panel { background:#0f162d; border:1px solid #1f2a44; border-radius:14px; padding:12px; }
+  .panel h2 { margin:4px 0 8px; font-size:14px; color:var(--mut); font-weight:600; letter-spacing:.02em; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0 2px; }
+  button, input[type="range"] { accent-color:#6ea8ff; }
+  button { background:#1a2440; color:var(--fg); border:1px solid #2b3a66; border-radius:10px; padding:8px 12px; cursor:pointer; }
+  button:hover { background:#223053; }
+  .stat { font-variant-numeric: tabular-nums; color:var(--mut); }
+  footer { padding:10px 16px; color:var(--mut); font-size:13px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  @media (max-width: 980px){ .wrap{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>DCA Visualizer: linearize <span class="mono">h</span>, minimize <span class="mono">g - line</span>, repeat</h1>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>Primal space (x): f(x)=g(x)-h(x), and supporting line of h at x<sub>k</sub></h2>
+    <div id="plot-primal" style="height:420px;"></div>
+    <div class="controls">
+      <button id="btn-play">▶ Play</button>
+      <button id="btn-step">Step</button>
+      <button id="btn-reset">Reset</button>
+      <label class="stat">x₀:
+        <input id="x0" type="range" min="-1.8" max="1.8" step="0.05" value="0.6" />
+        <span id="x0val" class="mono">0.60</span>
+      </label>
+      <span class="stat">k=<span id="kval" class="mono">0</span></span>
+      <span class="stat">x<sub>k</sub>=<span id="xk" class="mono">0.60</span></span>
+      <span class="stat">y<sub>k</sub>=<span id="yk" class="mono">1.00</span></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Convex subproblem: minimize g(x) − ⟨x, y<sub>k</sub>⟩ (tilted bowl) &nbsp;→&nbsp; x<sub>k+1</sub></h2>
+    <div id="plot-sub" style="height:420px;"></div>
+    <div class="stat">
+      For this demo: g(x)=½x², h(x)=|x| ⇒ y<sub>k</sub>∈∂h(x<sub>k</sub>)=sign(x<sub>k</sub>) (pick ±1), and the minimizer of g(x)−y<sub>k</sub>x is x<sub>k+1</sub>=y<sub>k</sub>.
+    </div>
+  </div>
+</div>
+
+<footer>
+  Tip: start with x₀&gt;0 to jump to +1 in one step; x₀&lt;0 jumps to −1. If x₀=0, any y∈[−1,1] is valid; this demo picks y=+1.
+</footer>
+
+<script>
+/* ---------- model: you can swap these to try other DC pairs ---------- */
+// g(x)=0.5*x^2 ; h(x)=|x|
+const g = x => 0.5*x*x;
+const h = x => Math.abs(x);
+// subgradient of h at x (we pick a representative at 0)
+function subgrad_h(x){
+  if (x > 0) return 1;
+  if (x < 0) return -1;
+  return 1; // any value in [-1,1]; choose +1 to move right
+}
+// supporting line of h at xk with slope yk
+function h_line(x, xk, yk){ return h(xk) + yk*(x - xk); }
+// tilted convex subproblem objective: g(x) - <x, yk>
+function tilted(x, yk){ return g(x) - yk*x; }
+// argmin of tilted for g=0.5 x^2 is yk (closed form)
+function argmin_tilted(yk){ return yk; }
+
+/* ---------- plotting grid ---------- */
+const XMIN = -2, XMAX = 2, N = 401;
+const xs = Array.from({length:N}, (_,i)=> XMIN + i*(XMAX-XMIN)/(N-1));
+
+/* ---------- state ---------- */
+let xk = 0.6, k = 0, playing = false;
+function resetState(newx0){
+  xk = newx0; k = 0; playing = false;
+  updateNumbers();
+  draw();
+}
+
+/* ---------- UI elements ---------- */
+const elK = document.getElementById('kval');
+const elXk = document.getElementById('xk');
+const elYk = document.getElementById('yk');
+const elX0 = document.getElementById('x0');
+const elX0val = document.getElementById('x0val');
+document.getElementById('btn-step').onclick = stepOnce;
+document.getElementById('btn-reset').onclick = ()=> resetState(parseFloat(elX0.value));
+document.getElementById('btn-play').onclick = togglePlay;
+elX0.oninput = e => { elX0val.textContent = (+e.target.value).toFixed(2); resetState(+e.target.value); };
+
+function updateNumbers(){
+  const yk = subgrad_h(xk);
+  elK.textContent = k;
+  elXk.textContent = xk.toFixed(2);
+  elYk.textContent = yk.toFixed(2);
+}
+
+/* ---------- one DCA step ---------- */
+function stepOnce(){
+  const yk = subgrad_h(xk);
+  const xkp1 = argmin_tilted(yk);
+  xk = xkp1; k++;
+  updateNumbers();
+  draw();
+}
+
+/* ---------- play loop ---------- */
+let timer = null;
+function togglePlay(){
+  playing = !playing;
+  const btn = document.getElementById('btn-play');
+  btn.textContent = playing ? '⏸ Pause' : '▶ Play';
+  if (playing){
+    timer = setInterval(()=>{
+      // stop if we are stationary (already at ±1 for this demo)
+      if (Math.abs(Math.abs(xk)-1) < 1e-6) { togglePlay(); return; }
+      stepOnce();
+    }, 800);
+  } else {
+    if (timer) clearInterval(timer);
+  }
+}
+
+/* ---------- drawing ---------- */
+function draw(){
+  const yk = subgrad_h(xk);
+  const f = xs.map(x=> g(x)-h(x));
+  const gcurve = xs.map(g);
+  const hcurve = xs.map(h);
+  const line = xs.map(x=> h_line(x,xk,yk));
+  const tilt = xs.map(x=> tilted(x,yk));
+
+  /* primal plot */
+  const dataPrimal = [
+    {x: xs, y: f, name: 'f(x)=g(x)-h(x)', type:'scatter', mode:'lines', line:{color:'#8ad', width:3}},
+    {x: xs, y: gcurve, name: 'g(x)', type:'scatter', mode:'lines', line:{color:'#6cf', width:1.5, dash:'dot'}, visible:'legendonly'},
+    {x: xs, y: hcurve, name: 'h(x)', type:'scatter', mode:'lines', line:{color:'#faa', width:1.5, dash:'dot'}, visible:'legendonly'},
+    {x: xs, y: line, name: 'supporting line of h at x_k', type:'scatter', mode:'lines', line:{color:'#ff6b6b', width:3}},
+    {x: [xk], y:[g(xk)-h(xk)], name:'x_k on f', type:'scatter', mode:'markers', marker:{color:'#fff', size:9}}
+  ];
+  const layoutPrimal = {
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    margin:{l:50,r:20,t:10,b:40},
+    xaxis:{range:[XMIN, XMAX], gridcolor:'#1f2a44', zerolinecolor:'#43506b', color:'#cdd6e8', title:'x'},
+    yaxis:{gridcolor:'#1f2a44', zerolinecolor:'#43506b', color:'#cdd6e8', title:'value'},
+    legend:{font:{color:'#cdd6e8'}},
+  };
+  Plotly.react('plot-primal', dataPrimal, layoutPrimal, {displayModeBar:false});
+
+  /* subproblem plot */
+  const dataSub = [
+    {x: xs, y: tilt, name:'g(x) - ⟨x, y_k⟩', type:'scatter', mode:'lines', line:{color:'#6ecb8a', width:3}},
+    {x: [argmin_tilted(yk)], y:[tilted(argmin_tilted(yk), yk)], name:'x_{k+1}', type:'scatter', mode:'markers', marker:{color:'#fff', size:9}},
+  ];
+  const layoutSub = {
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    margin:{l:50,r:20,t:10,b:40},
+    xaxis:{range:[XMIN, XMAX], gridcolor:'#1f2a44', zerolinecolor:'#43506b', color:'#cdd6e8', title:'x'},
+    yaxis:{gridcolor:'#1f2a44', zerolinecolor:'#43506b', color:'#cdd6e8', title:'value'},
+    legend:{font:{color:'#cdd6e8'}},
+  };
+  Plotly.react('plot-sub', dataSub, layoutSub, {displayModeBar:false});
+}
+
+/* init */
+resetState(xk);
+</script>
+</body>
+</html>
