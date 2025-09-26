@@ -3,7 +3,7 @@
 An interactive web-based visualization of the Difference of Convex (DC) function optimization algorithm.
 
 ## Live Demo
-Visit: `https://yourusername.github.io/dc-optimization-visualization`
+Visit: `https://sahibnoorsingh009.github.io/dc-optimization-visualization`
 
 ## About
 This visualization demonstrates how the DC Algorithm works using the example function:
