@@ -5,6 +5,9 @@ An interactive web-based visualization of the Difference of Convex (DC) function
 ## Live Demo
 Visit: `https://sahibnoorsingh009.github.io/DCA-Difference-of-Convex-`
 
+<img width="1050" height="995" alt="Screenshot 2025-09-28 at 21 00 56" src="https://github.com/user-attachments/assets/12b50603-cca0-4dec-a526-f69cc343cd43" />
+
+
 ## About
 This visualization demonstrates how the DC Algorithm works using the example function:
 **f(x) = x² - |x|**
